@@ -28,6 +28,33 @@
 
 > Финальная метрика: точность детекции только класса staff для submission.csv
 
+## 🎯 Постановка задачи
+- **Входные данные**: Набор изображений разрешением 1280x720 пикселей.
+Классы:
+
+    `customer` (class_id: 0) \
+    `staff` (class_id: 1)
+
+- **Целевая метрика**: `mAP` (mean Average Precision) для класса `staff`.
+- **Ограничение**: Финальный файл сабмишн (`submission.csv`) должен содержать координаты `bounding boxes` только для класса `staff`.
+
+## 🏗 Архитектура решения
+
+```mermaid
+graph TD
+    A[Input Images<br/>4454 test images] --> B[Multi-Model Inference]
+    B --> C1[YOLOv8n<br/>imgsz=640]
+    B --> C2[YOLOv8m<br/>imgsz=768]
+    B --> C3[YOLOv8l<br/>imgsz=768]
+    C2 --> D[SAHI<br/>Slicing Aided Hyper Inference]
+    C1 --> E[Weighted Box Fusion<br/>iou_thr=0.5]
+    C2 --> E
+    C3 --> E
+    D --> E
+    E --> F[Post-Processing<br/>keep_only_class=1 staff]
+    F --> G[submission.csv<br/>4454 rows]
+```
+
 ## 🛠 Технический стек
 ### Основные фреймворки и библиотеки
 <div align="center">
@@ -54,7 +81,14 @@ pyyaml                   # YAML конфигурации
 albumentations           # Аугментации изображений
 ```
 
-### Архитектура моделей
+### Методы улучшения качества
+- **Ensemble**: Weighted Box Fusion (WBF) с параметрами `iou_thr=0.5`, `skip_box_thr=0.001`
+- **SAHI**: Slicing Aided Hyper Inference для детекции мелких объектов
+- **Multi-scale**: Инференс на разных размерах изображений (640, 768)
+- **Checkpoints**: Сохранение и возобновление обучения (best.pt)
+
+## 📊 Результаты
+### Метрики моделей на валидации
 <div align="center">
 
 | Модель | Размер | Image Size | Epochs | mAP |
@@ -65,8 +99,65 @@ albumentations           # Аугментации изображений
 
 </div>
 
-### Методы улучшения качества
-- **Ensemble**: Weighted Box Fusion (WBF) с параметрами `iou_thr=0.5`, `skip_box_thr=0.001`
-- **SAHI**: Slicing Aided Hyper Inference для детекции мелких объектов
-- **Multi-scale**: Инференс на разных размерах изображений (640, 768)
-- **Checkpoints**: Сохранение и возобновление обучения (best.pt)
+### Детальные метрики лучшей модели (YOLOv8l)
+```
+Class      Images  Instances  Box(P      R      mAP50  mAP50-95)
+all        3908    21119      0.953    0.904    0.956    0.811
+customer   3481    17061      0.939    0.888    0.948    0.783
+staff      3089     4058      0.977    0.961    0.985    0.908
+```
+
+## 🚀 Установка и запуск
+### 1. Установка зависимостей
+```
+pip install ultralytics==8.4.19
+pip install sahi
+pip install ensemble-boxes
+pip install pandas numpy tqdm pyyaml albumentations
+```
+
+### 2. Подготовка данных
+```python
+# Автоматическая коррекция путей в YAML-конфигурации
+DATA_YAML = "/kaggle/working/data_fixed.yaml"
+TEST_DIR = "/kaggle/input/competitions/dl-lab-2-stuff-detection/test_images/test_images"
+```
+
+### 3. Обучение моделей
+```python
+# Модель 1: YOLOv8n (baseline)
+ckpt1 = train_with_resume(
+    ckpt_name="yolo26n_best.pt",
+    base_weights="yolo26n.pt",
+    project_name="miet",
+    run_name="lab2_yolo26n",
+    first_epochs=25,
+    extra_epochs=10,
+    imgsz=640,
+    batch=16
+)
+
+# Модель 2: YOLOv8m
+ckpt2 = train_with_resume(
+    ckpt_name="yolov8m_best.pt",
+    base_weights="yolov8m.pt",
+    project_name="miet",
+    run_name="lab2_yolov8m",
+    first_epochs=40,
+    extra_epochs=10,
+    imgsz=768,
+    batch=16
+)
+
+# Модель 3: YOLOv8l (лучшая точность)
+ckpt3 = train_with_resume(
+    ckpt_name="yolov8l_best.pt",
+    base_weights="yolov8l.pt",
+    project_name="miet",
+    run_name="lab2_yolov8l",
+    first_epochs=40,
+    extra_epochs=10,
+    imgsz=768,
+    batch=8
+)
+```
